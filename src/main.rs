@@ -8,8 +8,15 @@ use nente::{
 use std::time;
 
 fn process_packet(now: time::Duration, packet: &rawsock::BorrowedPacket) {
-    let frame = ethernet::Frame::parse(packet);
-    println!("{:?} | {:?}", now, frame);
+    match ethernet::Frame::parse(packet) {
+        Ok((_remaining, frame)) => {
+            println!("{:?} | {:?}", now, frame);
+        }
+        Err(nom::Err::Error(e)) => {
+            println!("{:?} | {:?}", now, e);
+        }
+        _ => unreachable!(),
+    }
 }
 
 fn contains<H, N>(haystack: H, needle: N) -> bool

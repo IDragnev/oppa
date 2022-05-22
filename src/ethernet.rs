@@ -2,21 +2,30 @@ use std::{
     fmt,
 };
 use custom_debug_derive::*;
+use nom::{
+    combinator::map,
+    bytes::complete::take,
+    number::complete::be_u16,
+    sequence::tuple,
+    error::context,
+};
+use crate::parse;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Addr([u8; 6]);
 
 impl Addr {
-    pub fn new(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() == 6 {
-            let mut addr = Self([0; 6]);
-            addr.0.copy_from_slice(&bytes[..6]);
+    pub fn parse(i: parse::Input) -> parse::Result<Self> {
+        context(
+            "MAC Address",
+            map(take(6_usize), Self::new_unchecked),
+        )(i)
+    }
 
-            Some(addr)
-        }
-        else {
-            None
-        }
+    fn new_unchecked(bytes: &[u8]) -> Self {
+        let mut addr = Self([0; 6]);
+        addr.0.copy_from_slice(&bytes[..6]);
+        addr
     }
 }
 
@@ -46,17 +55,16 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn parse(i: &[u8]) -> Self {
-        let read_u16 = |slice: &[u8]| {
-            let mut res = [0u8; 2];
-            res.copy_from_slice(&slice[..2]);
-            u16::from_be_bytes(res)
-        };
-
-        Self {
-            dst: Addr::new(&i[0..6]).unwrap(),
-            src: Addr::new(&i[6..12]).unwrap(),
-            ether_type: read_u16(&i[12..]),
-        }
+    pub fn parse(i: parse::Input) -> parse::Result<Self> {
+        context(
+            "Ethernet frame",
+            map(
+                tuple((Addr::parse, Addr::parse, context("EtherType", be_u16))),
+                |(dst, src, ether_type)| Self {
+                    dst,
+                    src,
+                    ether_type,
+            }),
+        )(i)
     }
 }
