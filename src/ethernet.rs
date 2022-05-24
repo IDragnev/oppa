@@ -1,7 +1,7 @@
 use std::{
     fmt,
 };
-use custom_debug_derive::*;
+use derive_try_from_primitive::TryFromPrimitive;
 use nom::{
     combinator::map,
     bytes::complete::take,
@@ -45,13 +45,35 @@ impl fmt::Debug for Addr {
     }
 }
 
-#[derive(CustomDebug)]
+#[derive(Debug, TryFromPrimitive)]
+#[repr(u16)]
+pub enum EtherType {
+    IPv4 = 0x0800,
+}
+
+impl EtherType {
+    pub fn parse(i: parse::Input) -> parse::Result<Self> {
+        let original_i = i;
+        let (i, x) = context("EtherType", be_u16)(i)?;
+
+        match EtherType::try_from(x) {
+            Ok(typ) => Ok((i, typ)),
+            Err(_) => {
+                use nom::Offset;
+                let msg = format!("unknown EtherType 0x{:04X}", x);
+                let err_slice = &original_i[..original_i.offset(i)];
+
+                Err(nom::Err::Error(parse::Error::custom(err_slice, msg)))
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Frame {
     pub dst: Addr,
     pub src: Addr,
-
-    #[debug(format = "0x{:04x}")]
-    pub ether_type: u16,
+    pub ether_type: EtherType,
 }
 
 impl Frame {
@@ -59,7 +81,7 @@ impl Frame {
         context(
             "Ethernet frame",
             map(
-                tuple((Addr::parse, Addr::parse, context("EtherType", be_u16))),
+                tuple((Addr::parse, Addr::parse, EtherType::parse)),
                 |(dst, src, ether_type)| Self {
                     dst,
                     src,

@@ -11,10 +11,19 @@ pub type Result<'a, T> = nom::IResult<Input<'a>, T, Error<Input<'a>>>;
 pub enum ErrorKind {
     Nom(NomErrorKind),
     Context(&'static str),
+    Custom(String),
 }
 
 pub struct Error<I> {
     pub errors: Vec<(I, ErrorKind)>,
+}
+
+impl<I> Error<I> {
+    pub fn custom(input: I, msg: String) -> Self {
+        Self {
+            errors: vec![(input, ErrorKind::Custom(msg))],
+        }
+    }
 }
 
 impl<I> NomParseError<I> for Error<I> {
@@ -36,7 +45,7 @@ impl<I> NomParseError<I> for Error<I> {
 
 impl<'a> fmt::Debug for Error<&'a [u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "/!\\ ersatz parsing error\n")?;
+        write!(f, "/!\\ nente parsing error\n")?;
 
         let mut shown_input = None;
         let margin_left = 4;
@@ -93,6 +102,7 @@ impl<'a> fmt::Debug for Error<&'a [u8]> {
             let prefix = match kind {
                 ErrorKind::Context(ctx) => format!("...in {}", ctx),
                 ErrorKind::Nom(err) => format!("nom error {:?}", err),
+                ErrorKind::Custom(msg) => format!("{}", msg),
             };
 
             write!(f, "{}\n", prefix)?;

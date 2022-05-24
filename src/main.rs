@@ -39,7 +39,7 @@ fn main() -> Result<(), Error> {
     iface.loop_infinite_dyn(&mut |packet| {
         if contains(&packet[..], "abcdefghijkl") == false {
             println!("skipping a non-ICMP packet");
-            return; // only process ICMP packets
+            return;
         }
 
         process_packet(start.elapsed(), packet);
