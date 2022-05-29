@@ -3,7 +3,7 @@
 mod vls;
 
 use crate::{
-    error::Error,
+    error,
     ipv4,
 };
 use vls::VLS;
@@ -20,23 +20,33 @@ crate::bind! {
     fn GetInterfaceInfo(info: *mut IpInterfaceInfo, size: *mut u32) -> u32;
 }
 
-pub fn default_nic_guid() -> Result<String, Error> {
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("could not find the default IP route")]
+    DefaultRouteMissing,
+    #[error("could not find the default network interface")]
+    DefaultInterfaceMissing,
+    #[error("could not identify the default network interface")]
+    DefaultInterfaceUnidentified,
+}
+
+pub fn default_nic_guid() -> Result<String, error::Error> {
     let table = VLS::new(|ptr, size| GetIpForwardTable(ptr, size, false))?;
     let entry: &IpForwardRow = table
         .entries()
         .iter()
         .find(|r| r.dest == ipv4::Addr([0, 0, 0, 0]))
-        .expect("should have default interface");
+        .ok_or(Error::DefaultRouteMissing)?;
 
     let ifaces = VLS::new(|ptr, size| GetInterfaceInfo(ptr, size))?;
     let iface: &IpAdapterIndexMap = ifaces
         .adapters()
         .iter()
         .find(|r| r.index == entry.if_index)
-        .expect("default interface should exist");
+        .ok_or(Error::DefaultInterfaceMissing)?;
 
     let name = iface.name.to_string();
-    let guid_start = name.find("{").expect("interface name should have a guid");
+    let guid_start = name.find("{").ok_or(Error::DefaultInterfaceUnidentified)?;
     let guid = &name[guid_start..];
 
     Ok(guid.to_string())
