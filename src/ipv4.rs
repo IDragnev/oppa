@@ -1,36 +1,82 @@
 use std::{
     fmt,
-    num::ParseIntError,
+};
+use crate::parse;
+use derive_try_from_primitive::*;
+use custom_debug_derive::*;
+use nom::{
+    bytes::complete::take,
+    error::context,
+    number::complete::{
+        be_u16,
+        be_u8
+    },
+    sequence::tuple,
 };
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Addr(pub [u8; 4]);
 
+#[derive(Debug, TryFromPrimitive)]
+#[repr(u8)]
+pub enum Protocol {
+    ICMP = 0x01,
+    TCP = 0x06,
+    UDP = 0x11,
+}
+
 #[derive(Debug)]
-pub enum ParseAddrError {
-    TooManyOctets,
-    InsufficientOctets,
-    InvalidOctet(ParseIntError),
+pub enum Payload {
+    Unknown,
+}
+
+#[derive(CustomDebug)]
+pub struct Packet {
+    src: Addr,
+    dst: Addr,
+    #[debug(skip)]
+    checksum: u16,
+    #[debug(skip)]
+    pub protocol: Option<Protocol>,
+    payload: Payload,
+}
+
+impl Protocol {
+    pub fn parse(i: parse::Input) -> parse::Result<Option<Self>> {
+        let (i, x) = context("IPv4 Protocol", be_u8)(i)?;
+
+        match Self::try_from(x) {
+            Ok(typ) => Ok((i, Some(typ))),
+            Err(_) => Ok((i, None)),
+        }
+    }
 }
 
 impl Addr {
-    pub fn parse(s: &str) -> Result<Self, ParseAddrError> {
-        let mut tokens = s.split(".");
-
+    pub fn parse(i: parse::Input) -> parse::Result<Self> {
+        let (i, slice) = context("IPv4 address", take(4_usize))(i)?;
         let mut res = Self([0, 0, 0, 0]);
-        for part in res.0.iter_mut() {
-            let oct = tokens.next()
-                            .ok_or(ParseAddrError::InsufficientOctets)?;
+        res.0.copy_from_slice(slice);
+        Ok((i, res))
+    }
+}
 
-            *part = u8::from_str_radix(oct, 10)
-                    .map_err(|e| ParseAddrError::InvalidOctet(e))?
-        }
+impl Packet {
+    pub fn parse(i: parse::Input) -> parse::Result<Self> {
+        // skip over those first 9 bytes for now
+        let (i, _) = take(9_usize)(i)?;
+        let (i, protocol) = Protocol::parse(i)?;
+        let (i, checksum) = be_u16(i)?;
+        let (i, (src, dst)) = tuple((Addr::parse, Addr::parse))(i)?;
+        let res = Self {
+            protocol,
+            checksum,
+            src,
+            dst,
+            payload: Payload::Unknown,
+        };
 
-        if let Some(_) = tokens.next() {
-            return Err(ParseAddrError::TooManyOctets);
-        }
-
-        Ok(res)
+        Ok((i, res))
     }
 }
 
@@ -38,43 +84,5 @@ impl fmt::Debug for Addr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let [a, b, c, d] = self.0;
         write!(f, "{}.{}.{}.{}", a, b, c, d)
-    }
-}
-
-impl fmt::Display for ParseAddrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl std::error::Error for ParseAddrError {}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn parse_addr_with_insufficient_octets_fails() {
-        assert!(matches!(Addr::parse("8"), Err(ParseAddrError::InsufficientOctets)));
-        assert!(matches!(Addr::parse("8.8"), Err(ParseAddrError::InsufficientOctets)));
-        assert!(matches!(Addr::parse("8.8.8"), Err(ParseAddrError::InsufficientOctets)));
-    }
-
-    #[test]
-    fn parse_addr_with_too_many_octets_fails() {
-        assert!(matches!(Addr::parse("8.8.8.8.8"), Err(ParseAddrError::TooManyOctets)));
-    }
-
-    #[test]
-    fn parse_addr_with_invalid_octet_fails() {
-        assert!(matches!(Addr::parse(""), Err(ParseAddrError::InvalidOctet(_))));
-        assert!(matches!(Addr::parse("8."), Err(ParseAddrError::InvalidOctet(_))));
-        assert!(matches!(Addr::parse("8.x.8.8"), Err(ParseAddrError::InvalidOctet(_))));
-        assert!(matches!(Addr::parse("8.256.8.8"), Err(ParseAddrError::InvalidOctet(_))));
-    }
-
-    #[test]
-    fn parse_addr_with_correct_addres_is_ok() {
-        assert!(matches!(Addr::parse("8.8.8.8"), Ok(_)));
     }
 }

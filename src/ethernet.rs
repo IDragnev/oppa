@@ -9,7 +9,11 @@ use nom::{
     sequence::tuple,
     error::context,
 };
-use crate::parse;
+use crate::{
+    parse,
+    ipv4,
+};
+use custom_debug_derive::*;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Addr([u8; 6]);
@@ -52,41 +56,50 @@ pub enum EtherType {
 }
 
 impl EtherType {
-    pub fn parse(i: parse::Input) -> parse::Result<Self> {
-        let original_i = i;
+    pub fn parse(i: parse::Input) -> parse::Result<Option<Self>> {
         let (i, x) = context("EtherType", be_u16)(i)?;
 
         match EtherType::try_from(x) {
-            Ok(typ) => Ok((i, typ)),
-            Err(_) => {
-                use nom::Offset;
-                let msg = format!("unknown EtherType 0x{:04X}", x);
-                let err_slice = &original_i[..original_i.offset(i)];
-
-                Err(nom::Err::Error(parse::Error::custom(err_slice, msg)))
-            }
+            Ok(typ) => Ok((i, Some(typ))),
+            Err(_) => Ok((i, None)),
         }
     }
 }
 
 #[derive(Debug)]
+pub enum Payload {
+    IPv4(ipv4::Packet),
+    Unknown,
+}
+
+#[derive(CustomDebug)]
 pub struct Frame {
     pub dst: Addr,
     pub src: Addr,
-    pub ether_type: EtherType,
+    #[debug(skip)]
+    pub ether_type: Option<EtherType>,
+    pub payload: Payload,
 }
 
 impl Frame {
     pub fn parse(i: parse::Input) -> parse::Result<Self> {
-        context(
-            "Ethernet frame",
-            map(
-                tuple((Addr::parse, Addr::parse, EtherType::parse)),
-                |(dst, src, ether_type)| Self {
-                    dst,
-                    src,
-                    ether_type,
-            }),
-        )(i)
+        context("Ethernet frame", |i| {
+            let (i, (dst, src)) = tuple((Addr::parse, Addr::parse))(i)?;
+            let (i, ether_type) = EtherType::parse(i)?;
+
+            let (i, payload) = match ether_type {
+                Some(EtherType::IPv4) => map(ipv4::Packet::parse, Payload::IPv4)(i)?,
+                None => (i, Payload::Unknown),
+            };
+
+            let res = Self {
+                dst,
+                src,
+                ether_type,
+                payload,
+            };
+
+            Ok((i, res))
+        })(i)
     }
 }

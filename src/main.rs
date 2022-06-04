@@ -4,29 +4,24 @@ use nente::{
         self,
     },
     ethernet,
+    ipv4,
 };
 use std::time;
 
 fn process_packet(now: time::Duration, packet: &rawsock::BorrowedPacket) {
     match ethernet::Frame::parse(packet) {
         Ok((_remaining, frame)) => {
-            println!("{:?} | {:?}", now, frame);
-        }
+            if let ethernet::Payload::IPv4(ref packet) = frame.payload {
+                if let Some(ipv4::Protocol::ICMP) = packet.protocol {
+                    println!("{:?} | {:#?}", now, packet);
+                }
+            }
+        },
         Err(nom::Err::Error(e)) => {
             println!("{:?} | {:?}", now, e);
-        }
+        },
         _ => unreachable!(),
     }
-}
-
-fn contains<H, N>(haystack: H, needle: N) -> bool
-    where H: AsRef<[u8]>,
-          N: AsRef<[u8]>,
-{
-    let (haystack, needle) = (haystack.as_ref(), needle.as_ref());
-    haystack
-        .windows(needle.len())
-        .any(|window| window == needle)
 }
 
 fn main() -> Result<(), Error> {
@@ -37,11 +32,6 @@ fn main() -> Result<(), Error> {
 
     let start = time::Instant::now();
     iface.loop_infinite_dyn(&mut |packet| {
-        if contains(&packet[..], "abcdefghijkl") == false {
-            println!("skipping a non-ICMP packet");
-            return;
-        }
-
         process_packet(start.elapsed(), packet);
     })?;
 
