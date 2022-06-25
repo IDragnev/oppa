@@ -12,6 +12,8 @@ custom_debug_derive = "0.1.7"
 nom = "5.0.1"
 derive-try-from-primitive = "1.0.0"
 thiserror = "1.0.31"
+ux = "0.1.4"
+paste = "1.0.7"
 
 [profile.release]
 lto = true

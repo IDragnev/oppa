@@ -131,8 +131,10 @@ dependencies = [
  "derive-try-from-primitive",
  "nom",
  "once_cell",
+ "paste",
  "rawsock",
  "thiserror",
+ "ux",
 ]
 
 [[package]]
@@ -151,6 +153,12 @@ name = "once_cell"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87f3e037eac156d1775da914196f0f37741a274155e34a0b7e427c35d2a2ecb9"
+
+[[package]]
+name = "paste"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c520e05135d6e763148b6426a837e239041653ba7becd2e538c076c738025fc"
 
 [[package]]
 name = "proc-macro2"
@@ -290,6 +298,12 @@ name = "unicode-xid"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc72304796d0818e357ead4e000d19c9c174ab23dc11093ac919054d20a6a7fc"
+
+[[package]]
+name = "ux"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5efdcf885b33bb81bc9336e66cebc10d503288449466c0e43e51250ddc93a3d8"
 
 [[package]]
 name = "version_check"

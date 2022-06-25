@@ -1,11 +1,44 @@
 use std::fmt;
-use nom::error::{
-    ParseError as NomParseError,
-    ErrorKind as NomErrorKind,
+use nom::{
+    error::{
+        ParseError as NomParseError,
+        ErrorKind as NomErrorKind,
+    },
+    bits::complete::take as take_bits,
+    combinator::map,
+};
+use ux::{
+    u2, u3, u4, u6, u13,
 };
 
 pub type Input<'a> = &'a [u8];
 pub type Result<'a, T> = nom::IResult<Input<'a>, T, Error<Input<'a>>>;
+
+pub type BitInput<'a> = (&'a [u8], usize);
+pub type BitResult<'a, T> = nom::IResult<BitInput<'a>, T, Error<BitInput<'a>>>;
+
+pub trait BitParsable
+where
+    Self: Sized,
+{
+    fn parse(i: BitInput) -> BitResult<Self>;
+}
+
+macro_rules! impl_bit_parsable_for_ux {
+    ($($width: expr),*) => {
+        $(
+            paste::item! {
+                impl BitParsable for [<u $width>] {
+                    fn parse(i: BitInput) -> BitResult<Self> {
+                        map(take_bits($width as usize), Self::new)(i)
+                    }
+                }
+            }
+        )*
+    };
+}
+
+impl_bit_parsable_for_ux!(2, 3, 4, 6, 13);
 
 #[derive(Debug)]
 pub enum ErrorKind {
@@ -40,6 +73,22 @@ impl<I> NomParseError<I> for Error<I> {
     fn add_context(input: I, ctx: &'static str, mut other: Self) -> Self {
         other.errors.push((input, ErrorKind::Context(ctx)));
         other
+    }
+}
+
+impl<I> nom::ErrorConvert<Error<I>> for Error<(I, usize)>
+where
+    I: nom::Slice<std::ops::RangeFrom<usize>>,
+{
+    fn convert(self) -> Error<I> {
+        let errors = self
+            .errors
+            .into_iter()
+            // If we're not on a byte boundary,
+            // we take the closest byte boundary to the left.
+            .map(|((rest, offset), err)| (rest.slice(offset / 8..), err))
+            .collect();
+        Error { errors }
     }
 }
 
