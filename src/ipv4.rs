@@ -1,7 +1,6 @@
 use std::{
     fmt,
 };
-use crate::parse;
 use derive_try_from_primitive::*;
 use custom_debug_derive::*;
 use nom::{
@@ -13,8 +12,15 @@ use nom::{
     },
     sequence::tuple,
     bits::bits,
+    combinator::map,
 };
-use crate::parse::BitParsable;
+use crate::{
+    parse::{
+        self, 
+        BitParsable,
+    },
+    icmp,
+};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Addr(pub [u8; 4]);
@@ -29,6 +35,7 @@ pub enum Protocol {
 
 #[derive(Debug)]
 pub enum Payload {
+    ICMP(icmp::Packet),
     Unknown,
 }
 
@@ -96,8 +103,8 @@ impl Packet {
             let msg = format!("Invalid IPv4 version {} (expected 4)", version);
             let err_slice = &original_i[..original_i.offset(i)];
             return Err(nom::Err::Error(parse::Error::custom(err_slice, msg)));
-        }
-
+        }    
+        
         let (i, (dscp, ecn)) = bits(tuple((u6::parse, u2::parse)))(i)?;
         let (i, length) = be_u16(i)?;
 
@@ -109,10 +116,10 @@ impl Packet {
         let (i, checksum) = be_u16(i)?;
         let (i, (src, dst)) = tuple((Addr::parse, Addr::parse))(i)?;
 
-        // let (i, payload) = match protocol {
-        //     Some(Protocol::ICMP) => map(icmp::Packet::parse, Payload::ICMP)(i)?,
-        //     _ => (i, Payload::Unknown),
-        // };
+        let (i, payload) = match protocol {
+            Some(Protocol::ICMP) => map(icmp::Packet::parse, Payload::ICMP)(i)?,
+            _ => (i, Payload::Unknown),
+        };
 
         let res = Self {
             version,
@@ -128,7 +135,7 @@ impl Packet {
             checksum,
             src,
             dst,
-            payload: Payload::Unknown,
+            payload,
         };
 
         Ok((i, res))
@@ -140,4 +147,27 @@ impl fmt::Debug for Addr {
         let [a, b, c, d] = self.0;
         write!(f, "{}.{}.{}.{}", a, b, c, d)
     }
+}
+
+pub fn checksum(slice: &[u8]) -> u16 {
+    let (head, slice, tail) = unsafe { slice.align_to::<u16>() };
+    if head.is_empty() == false {
+        panic!("checksum() input should be 16-bit aligned");
+    }
+    if tail.is_empty() == false {
+        panic!("checksum() input size should be a multiple of 2 bytes");
+    }
+
+    fn add(a: u16, b: u16) -> u16 {
+        let s: u32 = (a as u32) + (b as u32);
+        if s & 0x1_00_00 > 0 {
+            // overflow, add carry bit
+            (s + 1) as u16
+        } else {
+            s as u16
+        }
+    }
+
+    let sum = slice.iter().fold(0, |x, y| add(x, *y));
+    !sum
 }

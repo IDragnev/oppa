@@ -11,9 +11,12 @@ use std::time;
 fn process_packet(now: time::Duration, packet: &rawsock::BorrowedPacket) {
     match ethernet::Frame::parse(packet) {
         Ok((_remaining, frame)) => {
-            if let ethernet::Payload::IPv4(ref packet) = frame.payload {
-                if let Some(ipv4::Protocol::ICMP) = packet.protocol {
-                    println!("{:?} | {:#?}", now, packet);
+            if let ethernet::Payload::IPv4(ref ip_packet) = frame.payload {
+                if let ipv4::Payload::ICMP(ref icmp_packet) = ip_packet.payload {
+                    println!(
+                        "{:?} | ({:?}) => ({:?}) | {:#?}",
+                        now, ip_packet.src, ip_packet.dst, icmp_packet
+                    );
                 }
             }
         },

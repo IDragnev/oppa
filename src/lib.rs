@@ -4,3 +4,5 @@ pub mod lib_loader;
 pub mod netinfo;
 pub mod ethernet;
 pub mod parse;
+pub mod icmp;
+pub mod blob;
