@@ -1,7 +1,9 @@
 use std::{
     cmp::min,
-    fmt
+    fmt,
+    io,
 };
+use cookie_factory as cf;
 
 pub struct Blob(pub Vec<u8>);
 
@@ -26,5 +28,10 @@ impl fmt::Debug for Blob {
 impl Blob {
     pub fn new(slice: &[u8]) -> Self {
         Self(slice.into())
+    }
+
+    pub fn serialize<'a, W: io::Write + 'a>(&'a self) -> impl cf::SerializeFn<W> + 'a {
+        use cookie_factory::combinator::slice;
+        slice(&self.0)
     }
 }
