@@ -6,3 +6,4 @@ pub mod ethernet;
 pub mod parse;
 pub mod icmp;
 pub mod blob;
+pub mod arp;

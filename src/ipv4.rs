@@ -1,5 +1,6 @@
 use std::{
     fmt,
+    io,
 };
 use derive_try_from_primitive::*;
 use custom_debug_derive::*;
@@ -21,6 +22,7 @@ use crate::{
     },
     icmp,
 };
+use cookie_factory as cf;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Addr(pub [u8; 4]);
@@ -88,6 +90,11 @@ impl Addr {
         let mut res = Self([0, 0, 0, 0]);
         res.0.copy_from_slice(slice);
         Ok((i, res))
+    }
+
+    pub fn serialize<'a, W: io::Write + 'a>(&'a self) -> impl cf::SerializeFn<W> + 'a {
+        use cf::combinator::slice;
+        slice(&self.0)
     }
 }
 

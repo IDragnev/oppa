@@ -3,6 +3,7 @@ use std::{
     ptr,
     marker::PhantomData,
     ops::Deref,
+    ops::DerefMut,
 };
 use crate::{
     error::Error,
@@ -18,10 +19,12 @@ impl<T> VLS<T> {
         where F: Fn(*mut T, *mut u32) -> u32,
     {
         const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
+        const ERROR_BUFFER_OVERFLOW: u32 = 111;
 
         let mut size = 0;
         match f(ptr::null_mut(), &mut size) {
-            ERROR_INSUFFICIENT_BUFFER => {}
+            ERROR_INSUFFICIENT_BUFFER => {},
+            ERROR_BUFFER_OVERFLOW  => {},
             ret => return Err(Error::Win32(ret)),
         };
 
@@ -42,6 +45,12 @@ impl<T> Deref for VLS<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
+        unsafe { mem::transmute(self.data.as_ptr()) }
+    }
+}
+
+impl<T> DerefMut for VLS<T> {
+    fn deref_mut(&mut self) -> &mut T {
         unsafe { mem::transmute(self.data.as_ptr()) }
     }
 }

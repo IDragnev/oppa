@@ -5,6 +5,7 @@ mod vls;
 use crate::{
     error,
     ipv4,
+    ethernet,
 };
 use vls::VLS;
 use std::{
@@ -18,6 +19,8 @@ crate::bind! {
 
     fn GetIpForwardTable(table: *mut IpForwardTable, size: *mut u32, order: bool) -> u32;
     fn GetInterfaceInfo(info: *mut IpInterfaceInfo, size: *mut u32) -> u32;
+    fn GetIpAddrTable(table: *mut IpAddrTable, size: *mut u32, order: bool) -> u32;
+    fn GetAdaptersInfo(list: *mut IpAdapterInfo, size: *mut u32) -> u32;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -28,9 +31,21 @@ pub enum Error {
     DefaultInterfaceMissing,
     #[error("could not identify the default network interface")]
     DefaultInterfaceUnidentified,
+    #[error("could not determine the IP address of the default network interface")]
+    DefaultInterfaceNoIPAddr,
+    #[error("could not determine the MAC address of the default network interface")]
+    DefaultInterfaceNoMACAddr,
 }
 
-pub fn default_nic_guid() -> Result<String, error::Error> {
+#[derive(Debug)]
+pub struct NIC {
+    pub guid: String,
+    pub gateway: ipv4::Addr,
+    pub address: ipv4::Addr,
+    pub phy_address: ethernet::Addr,
+}
+
+pub fn default_nic() -> Result<NIC, error::Error> {
     let table = VLS::new(|ptr, size| GetIpForwardTable(ptr, size, false))?;
     let entry: &IpForwardRow = table
         .entries()
@@ -45,11 +60,40 @@ pub fn default_nic_guid() -> Result<String, error::Error> {
         .find(|r| r.index == entry.if_index)
         .ok_or(Error::DefaultInterfaceMissing)?;
 
+    let addr_rows = VLS::new(|ptr, size| GetIpAddrTable(ptr, size, false))?;
+    let address = addr_rows
+        .entries()
+        .iter()
+        .find(|r| r.index == entry.if_index)
+        .ok_or(Error::DefaultInterfaceNoIPAddr)?
+        .addr;
+
+    let mut adapter_list_head = VLS::new(|ptr, size| GetAdaptersInfo(ptr, size))?;
+    let mut current = std::ptr::NonNull::new(&mut *adapter_list_head);
+    let mut phy_address = None;
+    loop {
+        if let Some(adapter) = current {
+            let adapter = unsafe { adapter.as_ref() };
+            if adapter.address_length == 6 && adapter.index == entry.if_index {
+                phy_address = Some(adapter.address);
+                break;
+            }
+            current = adapter.next;
+        } else {
+            break;
+        }
+    }
+    let phy_address = phy_address.ok_or(Error::DefaultInterfaceNoMACAddr)?;
+
     let name = iface.name.to_string();
     let guid_start = name.find("{").ok_or(Error::DefaultInterfaceUnidentified)?;
     let guid = &name[guid_start..];
-
-    Ok(guid.to_string())
+    Ok(NIC {
+        guid: guid.to_string(),
+        address,
+        phy_address,
+        gateway: entry.next_hop,
+    })
 }
 
 #[repr(C)]
@@ -114,4 +158,54 @@ impl fmt::Debug for IpAdapterName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
+}
+
+#[repr(C)]
+#[derive(CustomDebug)]
+pub struct IpAddrRow {
+    pub addr: ipv4::Addr,
+    pub index: u32,
+    pub mask: ipv4::Addr,
+    pub bcast_addr: ipv4::Addr,
+    pub reasm_size: u32,
+
+    #[debug(skip)]
+    unused1: u16,
+    #[debug(skip)]
+    unused2: u16,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct IpAddrTable {
+    num_entries: u32,
+    entries: [IpAddrRow; 1],
+}
+
+impl IpAddrTable {
+    fn entries(&self) -> &[IpAddrRow] {
+        unsafe { slice::from_raw_parts(&self.entries[0], self.num_entries as usize) }
+    }
+}
+
+const MAX_ADAPTER_NAME_LENGTH: usize = 256;
+const MAX_ADAPTER_DESCRIPTION_LENGTH: usize = 128;
+
+#[repr(C)]
+#[derive(CustomDebug)]
+pub struct IpAdapterInfo {
+    pub next: Option<std::ptr::NonNull<IpAdapterInfo>>,
+    pub combo_index: u32,
+
+    #[debug(skip)]
+    pub adapter_name: [u8; MAX_ADAPTER_NAME_LENGTH + 4],
+    #[debug(skip)]
+    pub description: [u8; MAX_ADAPTER_DESCRIPTION_LENGTH + 4],
+
+    pub address_length: u32,
+    pub address: ethernet::Addr,
+    pub address_rest: u16,
+    pub index: u32,
+    pub typ: u32,
+    // ignore rest of fields
 }
