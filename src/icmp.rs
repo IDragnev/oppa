@@ -114,6 +114,15 @@ impl Header {
 }
 
 impl Packet {
+    pub fn echo_request<P: AsRef<[u8]>>(echo: Echo, payload: P) -> Self {
+        Self {
+            typ: Type::EchoRequest,
+            checksum: 0,
+            header: Header::EchoRequest(echo),
+            payload: Blob::new(payload.as_ref()),
+        }
+    }
+
     pub fn parse(i: parse::Input) -> parse::Result<Self> {
         let (i, typ) = {
             let (i, (typ, code)) = tuple((be_u8, be_u8))(i)?;
@@ -137,7 +146,6 @@ impl Packet {
         Ok((i, packet))
     }
 
-    #[cfg(target_endian = "little")]
     pub fn serialize<'a, W: io::Write + 'a>(&'a self) -> impl cf::SerializeFn<W> + 'a {
         use cf::{bytes::le_u16, combinator::slice};
 
@@ -145,19 +153,6 @@ impl Packet {
             let mut buf = cf::gen_simple(self.serialize_no_checksum(), Vec::new())?;
             let checksum = ipv4::checksum(&buf);
             cf::gen_simple(le_u16(checksum), &mut buf[2..])?;
-
-            slice(buf)(out)
-        }
-    }
-
-    #[cfg(target_endian = "big")]
-    pub fn serialize<'a, W: io::Write + 'a>(&'a self) -> impl cf::SerializeFn<W> + 'a {
-        use cf::{bytes::be_u16, combinator::slice};
-
-        move |out| {
-            let mut buf = cf::gen_simple(self.serialize_no_checksum(), Vec::new())?;
-            let checksum = ipv4::checksum(&buf);
-            cf::gen_simple(be_u16(checksum), &mut buf[2..])?;
 
             slice(buf)(out)
         }

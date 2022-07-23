@@ -100,7 +100,7 @@ impl Payload {
         use cf::sequence::tuple;
         move |out| match self {
             Self::ARP(ref packet) => tuple((EtherType::ARP.serialize(), packet.serialize()))(out),
-            Self::IPv4(_) => unimplemented!(),
+            Self::IPv4(ref packet) => tuple((EtherType::IPv4.serialize(), packet.serialize()))(out),
             Self::Unknown => unimplemented!(),
         }
     }

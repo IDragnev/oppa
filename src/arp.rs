@@ -2,6 +2,7 @@ use crate::{
     ethernet,
     ipv4,
     parse,
+    netinfo,
 };
 use derive_try_from_primitive::*;
 use nom::{
@@ -33,6 +34,18 @@ pub struct Packet {
     pub sender_ip_addr: ipv4::Addr,
     pub target_hw_addr: ethernet::Addr,
     pub target_ip_addr: ipv4::Addr,
+}
+
+impl Packet {
+    pub fn request(nic: &netinfo::NIC) -> Self {
+        Self {
+            operation: Operation::Request,
+            sender_hw_addr: nic.phy_address,
+            sender_ip_addr: nic.address,
+            target_hw_addr: ethernet::Addr::zero(),
+            target_ip_addr: nic.gateway,
+        }
+    }
 }
 
 impl Operation {

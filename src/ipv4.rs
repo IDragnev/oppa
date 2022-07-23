@@ -24,10 +24,10 @@ use crate::{
 };
 use cookie_factory as cf;
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Hash)]
 pub struct Addr(pub [u8; 4]);
 
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive, Copy, Clone)]
 #[repr(u8)]
 pub enum Protocol {
     ICMP = 0x01,
@@ -82,9 +82,18 @@ impl Protocol {
             Err(_) => Ok((i, None)),
         }
     }
+
+    pub fn serialize<'a, W: io::Write + 'a>(&'a self) -> impl cf::SerializeFn<W> + 'a {
+        use cf::bytes::be_u8;
+        be_u8(*self as u8)
+    }
 }
 
 impl Addr {
+    pub fn zero() -> Self {
+        return Self([0, 0, 0, 0])
+    }
+
     pub fn parse(i: parse::Input) -> parse::Result<Self> {
         let (i, slice) = context("IPv4 address", take(4_usize))(i)?;
         let mut res = Self([0, 0, 0, 0]);
@@ -98,7 +107,33 @@ impl Addr {
     }
 }
 
+impl Payload {
+    pub fn protocol(&self) -> Protocol {
+        match self {
+            Self::ICMP(_) => Protocol::ICMP,
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn serialize<'a, W: io::Write + 'a>(&'a self) -> impl cf::SerializeFn<W> + 'a {
+        move |out| match self {
+            Self::ICMP(ref icmp) => icmp.serialize()(out),
+            _ => unimplemented!(),
+        }
+    }
+}
+
 impl Packet {
+    pub fn new(src: Addr, dst: Addr, p: Payload) -> Self {
+        Self {
+            protocol: Some(p.protocol()),
+            payload: p,
+            src,
+            dst,
+            ..Default::default()
+        }
+    }
+
     pub fn parse(i: parse::Input) -> parse::Result<Self> {
         use ux::{u2, u3, u4, u6, u13};
         use nom::Offset;
@@ -147,6 +182,86 @@ impl Packet {
 
         Ok((i, res))
     }
+
+    pub fn serialize<'a, W: io::Write + 'a>(&'a self) -> impl cf::SerializeFn<W> + 'a {
+        use cf::{bytes::le_u16, bytes::be_u16, combinator::slice};
+
+        move |out| {
+            let mut buf = cf::gen_simple(self.serialize_no_checksum(), Vec::new())?;
+
+            let length = buf.len() as u16;
+            cf::gen_simple(be_u16(length), &mut buf[2..])?;
+
+            // note: this will break if we ever allow IP options
+            let header_slice = &buf[..5 * 4];
+            let checksum = crate::ipv4::checksum(header_slice);
+            cf::gen_simple(le_u16(checksum), &mut buf[10..])?;
+
+            slice(buf)(out)
+        }
+    }
+
+    pub fn serialize_no_checksum<'a, W: io::Write + 'a>(&'a self) -> impl cf::SerializeFn<W> + 'a {
+        use crate::serialize::{bits, BitSerialize};
+        use cf::{
+            bytes::{be_u16, be_u8},
+            sequence::tuple,
+        };
+        use ux::*;
+
+        tuple((
+            bits(move |bo| {
+                let version = u4::new(4);
+                let ihl = u4::new(5);
+                let dscp = u6::new(0);
+                let ecn = u2::new(0);
+
+                version.write(bo);
+                ihl.write(bo);
+                dscp.write(bo);
+                ecn.write(bo);
+            }),
+            be_u16(0), // length, to fill later
+            be_u16(self.identification),
+            bits(move |bo| {
+                let flags = u3::new(0);
+                let fragment_offset = u13::new(0);
+
+                flags.write(bo);
+                fragment_offset.write(bo);
+            }),
+            be_u8(self.ttl),
+            // we need to do this to avoid capturing a temporary
+            move |out| self.payload.protocol().serialize()(out),
+            be_u16(0), // checksum, to fill later
+            self.src.serialize(),
+            self.dst.serialize(),
+            self.payload.serialize(),
+        ))
+    }
+}
+
+impl Default for Packet {
+    fn default() -> Self {
+        use ux::*;
+
+        Self {
+            length: 0,
+            identification: rand::random(),
+            version: u4::new(4),
+            ihl: u4::new(5),
+            dscp: u6::new(0),
+            ecn: u2::new(0),
+            flags: u3::new(0),
+            fragment_offset: u13::new(0),
+            ttl: 128,
+            protocol: None,
+            checksum: 0,
+            src: Addr::zero(),
+            dst: Addr::zero(),
+            payload: Payload::Unknown,
+        }
+    }
 }
 
 impl fmt::Debug for Addr {
@@ -161,9 +276,6 @@ pub fn checksum(slice: &[u8]) -> u16 {
     if head.is_empty() == false {
         panic!("checksum() input should be 16-bit aligned");
     }
-    if tail.is_empty() == false {
-        panic!("checksum() input size should be a multiple of 2 bytes");
-    }
 
     fn add(a: u16, b: u16) -> u16 {
         let s: u32 = (a as u32) + (b as u32);
@@ -175,6 +287,7 @@ pub fn checksum(slice: &[u8]) -> u16 {
         }
     }
 
-    let sum = slice.iter().fold(0, |x, y| add(x, *y));
+    let odd_byte = tail.iter().next().map(|&x| x as u16).unwrap_or(0);
+    let sum = slice.iter().fold(odd_byte, |x, y| add(x, *y));
     !sum
 }

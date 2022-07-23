@@ -7,3 +7,4 @@ pub mod parse;
 pub mod icmp;
 pub mod blob;
 pub mod arp;
+pub mod serialize;
