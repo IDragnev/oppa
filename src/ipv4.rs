@@ -271,6 +271,39 @@ impl fmt::Debug for Addr {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ParseAddrError {
+    #[error("too many octets")]
+    TooManyOctets,
+    #[error("insufficient octets")]
+    InsufficientOctets,
+    #[error("invalid octet {0:?}")]
+    InvalidOctet(#[from] std::num::ParseIntError),
+}
+
+impl std::str::FromStr for Addr {
+    type Err = ParseAddrError;
+
+    fn from_str(s: &str) -> Result<Self, ParseAddrError> {
+        let mut tokens = s.split(".");
+
+        let mut res = Self([0, 0, 0, 0]);
+        for part in res.0.iter_mut() {
+            let oct = tokens.next()
+                            .ok_or(ParseAddrError::InsufficientOctets)?;
+
+            *part = u8::from_str_radix(oct, 10)
+                    .map_err(|e| ParseAddrError::InvalidOctet(e))?
+        }
+
+        if let Some(_) = tokens.next() {
+            return Err(ParseAddrError::TooManyOctets);
+        }
+
+        Ok(res)
+    }
+}
+
 pub fn checksum(slice: &[u8]) -> u16 {
     let (head, slice, tail) = unsafe { slice.align_to::<u16>() };
     if head.is_empty() == false {
@@ -290,4 +323,35 @@ pub fn checksum(slice: &[u8]) -> u16 {
     let odd_byte = tail.iter().next().map(|&x| x as u16).unwrap_or(0);
     let sum = slice.iter().fold(odd_byte, |x, y| add(x, *y));
     !sum
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn parse_addr_with_insufficient_octets_fails() {
+        assert!(matches!(Addr::from_str("8"), Err(ParseAddrError::InsufficientOctets)));
+        assert!(matches!(Addr::from_str("8.8"), Err(ParseAddrError::InsufficientOctets)));
+        assert!(matches!(Addr::from_str("8.8.8"), Err(ParseAddrError::InsufficientOctets)));
+    }
+
+    #[test]
+    fn parse_addr_with_too_many_octets_fails() {
+        assert!(matches!(Addr::from_str("8.8.8.8.8"), Err(ParseAddrError::TooManyOctets)));
+    }
+
+    #[test]
+    fn parse_addr_with_invalid_octet_fails() {
+        assert!(matches!(Addr::from_str(""), Err(ParseAddrError::InvalidOctet(_))));
+        assert!(matches!(Addr::from_str("8."), Err(ParseAddrError::InvalidOctet(_))));
+        assert!(matches!(Addr::from_str("8.x.8.8"), Err(ParseAddrError::InvalidOctet(_))));
+        assert!(matches!(Addr::from_str("8.256.8.8"), Err(ParseAddrError::InvalidOctet(_))));
+    }
+
+    #[test]
+    fn parse_addr_with_correct_addres_is_ok() {
+        assert!(matches!(Addr::from_str("8.8.8.8"), Ok(_)));
+    }
 }
