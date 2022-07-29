@@ -35,13 +35,13 @@ pub enum Protocol {
     UDP = 0x11,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Payload {
     ICMP(icmp::Packet),
     Unknown,
 }
 
-#[derive(CustomDebug)]
+#[derive(CustomDebug, Clone)]
 pub struct Packet {
     #[debug(skip)]
     pub version: ux::u4,

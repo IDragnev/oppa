@@ -5,6 +5,7 @@ use std::{
 };
 use cookie_factory as cf;
 
+#[derive(Clone)]
 pub struct Blob(pub Vec<u8>);
 
 impl fmt::Debug for Blob {

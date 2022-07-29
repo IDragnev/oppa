@@ -18,7 +18,7 @@ use std::{
     io,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Type {
     EchoReply,
     DestinationUnreachable(DestinationUnreachable),
@@ -27,19 +27,19 @@ pub enum Type {
     Other(u8, u8),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DestinationUnreachable {
     HostUnreachable,
     Other(u8),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TimeExceeded {
     TTLExpired,
     Other(u8),
 }
 
-#[derive(CustomDebug)]
+#[derive(CustomDebug, Clone)]
 pub struct Echo {
     #[debug(format = "{:04x}")]
     pub identifier: u16,
@@ -60,14 +60,14 @@ impl Echo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Header {
     EchoRequest(Echo),
     EchoReply(Echo),
     Other(u32),
 }
 
-#[derive(CustomDebug)]
+#[derive(CustomDebug, Clone)]
 pub struct Packet {
     pub typ: Type,
     #[debug(skip)]

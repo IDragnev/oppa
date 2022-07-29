@@ -8,3 +8,6 @@ pub mod icmp;
 pub mod blob;
 pub mod arp;
 pub mod serialize;
+pub mod interface;
+
+pub use interface::Interface;

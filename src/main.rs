@@ -1,129 +1,74 @@
 use nente::{
-    error::Error,
-    netinfo::{
-        self,
-    },
-    ethernet,
     ipv4,
-    arp,
     icmp,
+    Interface,
 };
 use std::{
+    env,
+    process,
     time,
-    collections::HashMap,
-    sync::{
-        mpsc,
-        Mutex,
-    },
 };
 
-pub struct PendingQueries {
-    arp: HashMap<ipv4::Addr, mpsc::Sender<ethernet::Addr>>
-}
-
-fn make_queries(
-    iface: &dyn rawsock::traits::DynamicInterface,
-    nic: &netinfo::NIC,
-    pending: &Mutex<PendingQueries>,
-) {
-    let gateway_ip = nic.gateway;
-    let (tx, rx) = mpsc::channel();
-    {
-        let mut pending = pending.lock().unwrap();
-        pending.arp.insert(gateway_ip, tx);
-    }
-    
-    let frame = ethernet::Frame {
-        src: nic.phy_address,
-        dst: ethernet::Addr::broadcast(),
-        ether_type: Some(ethernet::EtherType::ARP),
-        payload: ethernet::Payload::ARP(arp::Packet::request(nic)),
-    };
-    
-    use cookie_factory as cf;
-    let arp_serialized = cf::gen_simple(frame.serialize(), Vec::new()).unwrap();
-    iface.send(&arp_serialized).unwrap();
-
-    let gateway_phy_address = rx.recv().unwrap();
-    println!("gateway physical address: {:?}", gateway_phy_address);
-
-    let echo_frame = ethernet::Frame {
-        src: nic.phy_address,
-        dst: gateway_phy_address,
-        ether_type: Some(ethernet::EtherType::IPv4),
-        payload: ethernet::Payload::IPv4(ipv4::Packet::new(
-            nic.address,
-            ipv4::Addr([8, 8, 8, 8]),
-            ipv4::Payload::ICMP(icmp::Packet::echo_request(
-                icmp::Echo {
-                    identifier: 0xBEEF,
-                    sequence_number: 0xFACE,
-                },
-                "Lorem ipsum dolor sit amet".as_bytes(),
-            )),
-        )),
-    };
-
-    let serialized_echo = cf::gen_simple(echo_frame.serialize(), Vec::new()).unwrap();
-    iface.send(&serialized_echo).unwrap();
-}
-
-fn process_packet(now: time::Duration, pending: &Mutex<PendingQueries>, packet: &rawsock::BorrowedPacket) {
-    let frame = match ethernet::Frame::parse(packet) {
-        Ok((_remaining, frame)) => frame,
-        Err(nom::Err::Error(e)) => {
-            println!("{:?} | {:?}", now, e);
-            return;
-        }
-        _ => unreachable!(),
-    };
-
-    match frame.payload {
-        ethernet::Payload::IPv4(ref ip_packet) => match ip_packet.payload {
-            ipv4::Payload::ICMP(ref icmp_packet) => println!(
-                "{:?} | ({:?}) => ({:?}) | {:#?}",
-                now, ip_packet.src, ip_packet.dst, icmp_packet
-            ),
-            _ => {}
-        },
-        ethernet::Payload::ARP(ref arp_packet) => {
-            if let arp::Operation::Reply = arp_packet.operation {
-                let mut pending = pending.lock().unwrap();
-                if let Some(tx) = pending.arp.remove(&arp_packet.sender_ip_addr) {
-                    tx.send(arp_packet.sender_hw_addr).unwrap();
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn main() -> Result<(), Error> {
-    let nic = netinfo::default_nic()?;
-    println!("Using {:#?}", nic);
-
-    let interface_name = format!(r#"\Device\NPF_{}"#, nic.guid);
-    let lib = rawsock::open_best_library()?;
-    let iface = lib.open_interface(&interface_name)?;
-
-    let pending = Mutex::new(PendingQueries {
-        arp: HashMap::new(),
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let arg = env::args().nth(1).unwrap_or_else(|| {
+        println!("Usage: oppa DEST");
+        process::exit(1);
     });
 
-    let start = time::Instant::now();
-    crossbeam_utils::thread::scope(|s| {
-        s.spawn(|_| {
-            make_queries(iface.as_ref(), &nic, &pending);
+    let dest = arg.parse()?;
+
+    let mut iface = Interface::open_default()?;
+
+    let identifier = 0xBEEF;
+    let data = "Lorem ipsum dolor sit amet";
+    println!("Pinging {:?} with {} bytes of data:", dest, data.len());
+
+    for sequence_number in 0..4 {
+        let echo_pd = ipv4::Payload::ICMP(icmp::Packet::echo_request(
+            icmp::Echo {
+                identifier,
+                sequence_number,
+            },
+            data.as_bytes(),
+        ));
+
+        let before = time::Instant::now();
+        let rx = iface.expect_ipv4(move |packet| {
+            if let ipv4::Payload::ICMP(ref icmp_packet) = packet.payload {
+                if let icmp::Header::EchoReply(ref reply) = icmp_packet.header {
+                    if reply.identifier == identifier && reply.sequence_number == sequence_number {
+                        return Some((before.elapsed(), packet.clone()));
+                    }
+                }
+            }
+
+            None
         });
 
-        s.spawn(|_| {
-            iface.loop_infinite_dyn(&mut |packet| {
-                    process_packet(start.elapsed(), &pending, packet);
-                 })
-                 .unwrap();
-        });
-    })
-    .unwrap();
+        iface.send_ipv4(echo_pd, &dest)?;
+
+        match rx.recv_timeout(time::Duration::from_secs(3)) {
+            Ok((elapsed, packet)) => {
+                if let ipv4::Payload::ICMP(ref icmp_packet) = packet.payload {
+                    if let icmp::Header::EchoReply(_) = icmp_packet.header {
+                        println!(
+                            "Reply from {:?}: bytes={} time={:?} TTL={}",
+                            packet.src,
+                            icmp_packet.payload.0.len(),
+                            elapsed,
+                            packet.ttl,
+                        );
+                    }
+                }
+            }
+            Err(_) => {
+                println!("Timed out!");
+                process::exit(1);
+            }
+        }
+
+        std::thread::sleep(time::Duration::from_secs(1));
+    }
 
     Ok(())
 }
