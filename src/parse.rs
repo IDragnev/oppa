@@ -94,7 +94,7 @@ where
 
 impl<'a> fmt::Debug for Error<&'a [u8]> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "/!\\ nente parsing error\n")?;
+        write!(f, "/!\\ oppa parsing error\n")?;
 
         let mut shown_input = None;
         let margin_left = 4;

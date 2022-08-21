@@ -169,24 +169,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 
 [[package]]
-name = "nente"
-version = "0.1.0"
-dependencies = [
- "bitvec",
- "cookie-factory",
- "crossbeam-utils",
- "custom_debug_derive",
- "derive-try-from-primitive",
- "nom",
- "once_cell",
- "paste",
- "rand",
- "rawsock",
- "thiserror",
- "ux",
-]
-
-[[package]]
 name = "nom"
 version = "5.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -202,6 +184,24 @@ name = "once_cell"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87f3e037eac156d1775da914196f0f37741a274155e34a0b7e427c35d2a2ecb9"
+
+[[package]]
+name = "oppa"
+version = "0.1.0"
+dependencies = [
+ "bitvec",
+ "cookie-factory",
+ "crossbeam-utils",
+ "custom_debug_derive",
+ "derive-try-from-primitive",
+ "nom",
+ "once_cell",
+ "paste",
+ "rand",
+ "rawsock",
+ "thiserror",
+ "ux",
+]
 
 [[package]]
 name = "paste"
